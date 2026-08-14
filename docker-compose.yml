@@ -1,0 +1,20 @@
+services:
+  render:
+    image: ghcr.io/CHANGE-ME/blender-render:5.1.2
+    volumes:
+      - ./scenes:/scene
+      - ./out:/out
+    environment:
+      SCENE: /scene/围棋星空场景.blend
+      MODE: still          # still | animation
+      SAMPLES: "400"
+      FORMAT: PNG
+      DEVICE: OPTIX
+      FAIL_IF_NO_GPU: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

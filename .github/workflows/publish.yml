@@ -1,0 +1,83 @@
+name: build & push to ghcr
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'Dockerfile'
+      - 'entrypoint.sh'
+      - 'render.py'
+      - 'scene/**'
+      - '.github/workflows/publish.yml'
+  workflow_dispatch:
+    inputs:
+      blender_version:
+        description: 'Blender version to bake in (must match the .blend)'
+        default: '5.1.2'
+
+env:
+  BLENDER_VERSION: ${{ github.event.inputs.blender_version || '5.1.2' }}
+  BLENDER_SERIES: '5.1'
+  BLENDER_SHA256: 'aaccb355f50183979b698bcce7467103a76261b5fa59f4972295842662a285fb'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects uppercase in image names; owner login may contain capitals
+      - name: resolve image name
+        run: echo "IMAGE=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: free up disk (Blender tarball is ~400 MB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ env.BLENDER_VERSION }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BLENDER_VERSION=${{ env.BLENDER_VERSION }}
+            BLENDER_SERIES=${{ env.BLENDER_SERIES }}
+            BLENDER_SHA256=${{ env.BLENDER_SHA256 }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: smoke test — really render a frame on CPU
+        run: |
+          mkdir -p ci-out && chmod 777 ci-out
+          docker run --rm -v "${PWD}/ci-out:/out" \
+            "${IMAGE}:${BLENDER_VERSION}" \
+            /opt/blender/blender -b --factory-startup -noaudio -E CYCLES \
+              --python-expr "import bpy; s=bpy.context.scene; s.cycles.samples=4; s.render.resolution_percentage=10" \
+              -o /out/smoke_ -F PNG -f 1
+          test -s ci-out/smoke_0001.png
+          echo "smoke frame: $(stat -c%s ci-out/smoke_0001.png) bytes"
