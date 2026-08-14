@@ -141,3 +141,41 @@ docker buildx build --platform linux/amd64 \
 - **`cycles.device` 存在 .blend 里，但具体用哪块卡是本机偏好设置**，不跟着文件走 ——
   所以每次渲染都要在 `render.py` 里重新枚举并启用设备。
 - CPU 设备**故意不启用**：混合 CPU+GPU 在 Cycles 里经常拖慢整体队列。
+
+---
+
+## 为什么默认不装 CUDA
+
+Cycles 的 CUDA / OptiX 内核是 **Blender 编译好一起发的**（`.cubin` / OptiX PTX），
+运行时只需要两样东西，都由 NVIDIA Container Toolkit 从宿主机注入：
+
+- `libcuda.so.1` —— 驱动，不是 CUDA Toolkit
+- OptiX 的驱动入口 —— 同样来自驱动
+
+`nvidia/cuda:*-runtime` 镜像提供的是 **CUDA Toolkit 运行库**（cudart、cuBLAS、cuFFT…），
+Blender 一个都不会 dlopen。装上去只是多 2–3 GB 的下载和磁盘，对 Cycles 没有任何作用。
+
+**但是**：部分 GPU 云（Vast.ai、RunPod）的编排层只按 CUDA 基础镜像测试过，
+所以这里同时构建了一个 CUDA 变体，用来在排查时排除这个变量：
+
+| tag | 基础镜像 | 大小 |
+|---|---|---|
+| `:5.1.2` / `:latest` | `ubuntu:24.04` | ~0.64 GB（压缩后） |
+| `:5.1.2-cuda` / `:latest-cuda` | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | ~1.5 GB（压缩后） |
+
+两个变体里的 Blender、脚本、环境变量完全一致，只有基础镜像不同。
+
+## Vast.ai 上的坑
+
+`kaalia_docker_shim did not terminate successfully: exit status 101` 这个报错
+发生在 **OCI 容器创建阶段**，也就是镜像里的任何东西都还没开始跑，
+所以它通常和镜像内容无关。按这个顺序排查：
+
+1. 换台机器。这个报错在 Vast.ai 上多数是宿主机的 shim/驱动坏了，同样的镜像换台机就好。
+   先用别人的镜像验证：`nvidia/cuda:12.4.1-runtime-ubuntu22.04` 跑 `nvidia-smi`，
+   如果它也起不来，就是机器的问题，销毁重租。
+2. Launch Mode 选 **Docker ENTRYPOINT**（不要选 SSH / Jupyter）。
+   本镜像没有 sshd 和 notebook，SSH/Jupyter 模式下 Vast 会注入它自己的启动脚本，冲突。
+3. Vast.ai 不支持宿主机 bind mount，`-v /srv/scenes:/scene` 在它上面无效。
+   要么把 .blend 烤进镜像（见上面第 6 节），要么在 on-start 脚本里
+   `curl`/`rclone` 把场景拉到 `/scene`。

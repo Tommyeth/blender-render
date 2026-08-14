@@ -6,6 +6,9 @@
 # and the result stays ~1.2 GB instead of ~4 GB.
 # ---------------------------------------------------------------------------
 
+# Runtime base. Plain Ubuntu is enough for Cycles (see README "为什么不装 CUDA"),
+# but some GPU clouds (Vast.ai, RunPod...) assume a CUDA base, so it is a knob.
+ARG RUNTIME_BASE=ubuntu:24.04
 ARG BLENDER_VERSION=5.1.2
 ARG BLENDER_SERIES=5.1
 # from https://download.blender.org/release/Blender5.1/blender-5.1.2.sha256
@@ -28,12 +31,14 @@ RUN set -eux; \
     rm /tmp/blender.tar.xz
 
 # ------------------------------------------------------------------- runtime
-FROM ubuntu:24.04
+FROM ${RUNTIME_BASE}
 ARG BLENDER_VERSION
+ARG RUNTIME_BASE
 
 LABEL org.opencontainers.image.title="blender-render" \
       org.opencontainers.image.description="Headless Blender ${BLENDER_VERSION} render node (Cycles, NVIDIA OptiX/CUDA)" \
-      org.opencontainers.image.licenses="GPL-3.0-or-later"
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      io.blender-render.runtime-base="${RUNTIME_BASE}"
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \

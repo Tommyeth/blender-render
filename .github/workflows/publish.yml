@@ -27,6 +27,20 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Cycles only needs the driver (injected by the container toolkit),
+          # so the default image carries no CUDA toolkit at all.
+          - variant: slim
+            base: ubuntu:24.04
+            suffix: ''
+          # Some GPU marketplaces (Vast.ai, RunPod) only ever test CUDA-based
+          # images; this variant exists to take that variable off the table.
+          - variant: cuda
+            base: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+            suffix: '-cuda'
     steps:
       - uses: actions/checkout@v4
 
@@ -52,10 +66,9 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=${{ env.BLENDER_VERSION }}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
-            type=sha,format=short
+            type=raw,value=${{ env.BLENDER_VERSION }}${{ matrix.suffix }}
+            type=raw,value=latest${{ matrix.suffix }},enable={{is_default_branch}}
+            type=sha,format=short,suffix=${{ matrix.suffix }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -65,19 +78,25 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            RUNTIME_BASE=${{ matrix.base }}
             BLENDER_VERSION=${{ env.BLENDER_VERSION }}
             BLENDER_SERIES=${{ env.BLENDER_SERIES }}
             BLENDER_SHA256=${{ env.BLENDER_SHA256 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
 
       - name: smoke test — really render a frame on CPU
         run: |
           mkdir -p ci-out && chmod 777 ci-out
           docker run --rm -v "${PWD}/ci-out:/out" \
-            "${IMAGE}:${BLENDER_VERSION}" \
+            "${IMAGE}:${BLENDER_VERSION}${{ matrix.suffix }}" \
             /opt/blender/blender -b --factory-startup -noaudio -E CYCLES \
               --python-expr "import bpy; s=bpy.context.scene; s.cycles.samples=4; s.render.resolution_percentage=10" \
               -o /out/smoke_ -F PNG -f 1
           test -s ci-out/smoke_0001.png
           echo "smoke frame: $(stat -c%s ci-out/smoke_0001.png) bytes"
+
+      - name: report size
+        run: |
+          docker image inspect "${IMAGE}:${BLENDER_VERSION}${{ matrix.suffix }}" \
+            --format '{{ .RepoTags }} uncompressed {{ div .Size 1048576 }} MiB' || true
