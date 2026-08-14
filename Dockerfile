@@ -42,12 +42,24 @@ LABEL org.opencontainers.image.title="blender-render" \
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates tini \
+        ca-certificates tini openssh-server \
         libx11-6 libxext6 libxrender1 libxi6 libxxf86vm1 libxfixes3 \
         libxrandr2 libxinerama1 libxcursor1 libxkbcommon0 \
         libsm6 libice6 libgl1 libglx-mesa0 libegl1 libgomp1 \
         libfreetype6 libfontconfig1 libdbus-1-3 zlib1g \
     && rm -rf /var/lib/apt/lists/*
+
+# GPU marketplaces (Vast.ai, RunPod) start the container and SSH into it.
+# Ubuntu's sshd defaults to StrictModes yes, and the authorized_keys those
+# platforms inject routinely arrives with perms/ownership it rejects, which
+# shows up as a bare "Permission denied (publickey)" with no useful hint.
+RUN mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh && \
+    printf '%s\n' \
+      'StrictModes no' \
+      'PermitRootLogin prohibit-password' \
+      'PasswordAuthentication no' \
+      'ClientAliveInterval 60' \
+      > /etc/ssh/sshd_config.d/99-render-node.conf
 
 COPY --from=fetch /opt/blender /opt/blender
 
@@ -59,7 +71,6 @@ RUN chmod +x /usr/local/bin/render
 ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics \
     PATH="/opt/blender:${PATH}" \
-    HOME=/tmp \
     BLENDER_VERSION=${BLENDER_VERSION}
 
 # ---- defaults; override any of these with -e at run time --------------------

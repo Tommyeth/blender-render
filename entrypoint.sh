@@ -17,6 +17,44 @@ fi
 
 BLENDER=/opt/blender/blender
 
+# --------------------------------------------------------------- serve mode
+# GPU marketplaces launch the container and expect it to stay up with sshd,
+# not to render once and exit. Detect that and serve instead.
+#
+# Only when we are the container's own init (direct child of PID 1) — so that
+# typing `render` inside an SSH session still renders instead of sleeping.
+ppid=$(awk '{print $4}' /proc/self/stat 2>/dev/null || echo 0)
+if [[ "${SERVE:-0}" == "1" || ( -n "${VAST_CONTAINERLABEL:-}" && "${ppid}" == "1" ) ]]; then
+    echo "[render] serve mode (${VAST_CONTAINERLABEL:-SERVE=1})"
+    mkdir -p /run/sshd /root/.ssh /scene /out
+    [[ -n "${PUBLIC_KEY:-}" ]] && echo "${PUBLIC_KEY}" >> /root/.ssh/authorized_keys
+    # normalise whatever the platform injected; sshd is picky and fails silently
+    chown -R root:root /root/.ssh 2>/dev/null || true
+    chmod 700 /root/.ssh 2>/dev/null || true
+    [[ -f /root/.ssh/authorized_keys ]] && chmod 600 /root/.ssh/authorized_keys
+    ssh-keygen -A >/dev/null 2>&1 || true
+    /usr/sbin/sshd -e 2>&1 | sed 's/^/[sshd] /' &
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null \
+        | sed 's/^/[render] gpu     /' || echo "[render] gpu     (none visible)"
+    cat <<'BANNER'
+[render] ------------------------------------------------------------------
+[render] container is up. ssh in, then render with the same env vars:
+[render]
+[render]   SCENE=/scene/xxx.blend SAMPLES=64 RES_PERCENT=25 render
+[render]   SCENE=/scene/xxx.blend SAMPLES=400 render
+[render]   SCENE=/scene/xxx.blend MODE=animation FRAME_START=1 FRAME_END=1800 render
+[render]
+[render] upload the scene from your machine:
+[render]   scp -P <port> your.blend root@<host>:/scene/
+[render] set AUTORENDER=1 to render on boot instead of waiting.
+[render] ------------------------------------------------------------------
+BANNER
+    if [[ "${AUTORENDER:-0}" == "1" ]]; then
+        SERVE=0 "$0" || echo "[render] boot render failed (status $?), staying up"
+    fi
+    exec sleep infinity
+fi
+
 # ---------------------------------------------------------------- scene file
 if [[ ! -f "${SCENE}" ]]; then
     # be forgiving: pick the only .blend we can find under /scene
