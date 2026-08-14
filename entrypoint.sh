@@ -87,6 +87,8 @@ JSON
 args=(-b "${SCENE}" -noaudio)
 [[ "${ENABLE_AUTOEXEC}" == "1" ]] && args+=(--enable-autoexec)
 args+=(-o "${OUT}" -F "${FORMAT}" --python /opt/render/render.py)
+# shellcheck disable=SC2206
+[[ -n "${EXTRA_ARGS}" ]] && args+=(${EXTRA_ARGS})
 
 # Blender executes flags in order, so the render range must come *after*
 # --python (so the script has already set the device) but *before* the "--"
@@ -99,8 +101,6 @@ if [[ "${MODE}" == "animation" || "${MODE}" == "anim" ]]; then
 else
     args+=(-f "$(( FRAME + FRAME_OFFSET ))")
 fi
-# shellcheck disable=SC2206
-[[ -n "${EXTRA_ARGS}" ]] && args+=(${EXTRA_ARGS})
 args+=(-- "${cfg}")
 
 echo "[render] blender ${BLENDER_VERSION}"
