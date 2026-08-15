@@ -80,7 +80,8 @@ bool01() { case "${1,,}" in 1|true|yes|on) echo 1 ;; *) echo 0 ;; esac; }
 cfg=$(cat <<JSON
 {"device":"${DEVICE}","samples":"${SAMPLES}","res_percent":"${RES_PERCENT}",
  "format":"${FORMAT}","denoise":$(bool01 "${DENOISE:-1}"),"motion_blur":"${MOTION_BLUR}",
- "threads":"${THREADS}","fail_if_no_gpu":$(bool01 "${FAIL_IF_NO_GPU:-0}")}
+ "threads":"${THREADS}","fail_if_no_gpu":$(bool01 "${FAIL_IF_NO_GPU:-0}"),
+ "gpu_index":"${GPU_INDEX}"}
 JSON
 )
 

@@ -51,13 +51,26 @@ if want != "CPU":
                         pass
             devs = [d for d in prefs.devices if d.type == b]
             if devs:
+                # GPU_INDEX pins this process to one card. On a multi-GPU box the
+                # fastest layout is N processes x 1 card, each taking every Nth
+                # frame (FRAME_STEP/FRAME_OFFSET) -- one process across N cards
+                # scales badly on short frames because the per-frame scene sync
+                # is serial and cannot be split.
+                idx = cfg.get("gpu_index")
+                pick = None
+                if idx not in (None, ""):
+                    i = int(idx)
+                    if 0 <= i < len(devs):
+                        pick = devs[i]
+                    else:
+                        log("GPU_INDEX %d out of range (have %d)" % (i, len(devs)))
                 for d in prefs.devices:
-                    # enable every accelerator of the chosen backend; leave the
-                    # CPU off so it does not throttle the GPU queue
-                    d.use = (d.type == b)
+                    d.use = (d is pick) if pick else (d.type == b)
                 backend = b
                 gpu_ok = True
-                log("backend %s -> %s" % (b, ", ".join(d.name for d in devs)))
+                used = [d.name for d in prefs.devices if d.use]
+                log("backend %s -> %s%s" % (b, ", ".join(used),
+                                            " (pinned)" if pick else ""))
                 break
             log("backend %s: no devices" % b)
     except Exception as e:                                   # pragma: no cover

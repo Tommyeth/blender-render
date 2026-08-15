@@ -65,7 +65,8 @@ COPY --from=fetch /opt/blender /opt/blender
 
 COPY render.py /opt/render/render.py
 COPY entrypoint.sh /usr/local/bin/render
-RUN chmod +x /usr/local/bin/render
+COPY farm.sh /usr/local/bin/farm
+RUN chmod +x /usr/local/bin/render /usr/local/bin/farm
 
 # let the NVIDIA container runtime hand us the driver + OptiX
 ENV NVIDIA_VISIBLE_DEVICES=all \
@@ -89,6 +90,7 @@ ENV SCENE=/scene/scene.blend \
     DENOISE=1 \
     MOTION_BLUR= \
     THREADS=0 \
+    GPU_INDEX= \
     FAIL_IF_NO_GPU=1 \
     ENABLE_AUTOEXEC=1 \
     EXTRA_ARGS=
